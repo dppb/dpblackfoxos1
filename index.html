@@ -832,8 +832,33 @@
 
   /* ---------- export / wipe ---------- */
   function exportBackup() {
+    const name = "osv1-cockpit-backup-" + currentKey + ".json";
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "osv1-cockpit-backup-" + currentKey + ".json";
+    const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    if (!isIOS && typeof window.showSaveFilePicker === "function") {
+      // Chrome and Edge on a computer: a real Save window that remembers the last folder chosen for this site.
+      window.showSaveFilePicker({ id: "osv1-backups", suggestedName: name, types: [{ description: "OS-v1 backup", accept: { "application/json": [".json"] } }] })
+        .then(function (handle) { return handle.createWritable().then(function (w) { return w.write(blob).then(function () { return w.close(); }); }); })
+        .then(function () { toast("Backup saved"); })
+        .catch(function (err) {
+          if (err && err.name === "AbortError") return;
+          const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+          toast("Backup downloaded");
+        });
+      return;
+    }
+    if (isIOS && window.File && navigator.share && navigator.canShare) {
+      try {
+        const file = new File([blob], name, { type: "application/json" });
+        if (navigator.canShare({ files: [file] })) {
+          navigator.share({ files: [file], title: "OS-v1 backup" }).then(() => toast("Backup saved"), () => {});
+          return;
+        }
+      } catch (e) { /* fall through to download */ }
+    }
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     toast("Backup downloaded");
