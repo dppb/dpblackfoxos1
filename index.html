@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#09090b" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="OS-v1" />
+<title>OS-v1 Cockpit</title>
+<!--
+  OS-v1 Cockpit — single-file execution engine.
+  Dependencies: Tailwind CSS (CDN) and Lucide Icons (CDN). Everything else is in this file.
+  All data is stored in this browser's localStorage. Nothing is transmitted anywhere.
+  Open the file once with an internet connection so the browser can cache the two libraries.
+-->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  if (window.tailwind) {
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ["Inter", "system-ui", "-apple-system", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", "sans-serif"],
+            mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "Liberation Mono", "monospace"]
+          }
+        }
+      }
+    };
+  }
+</script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<style>
+  /* Base styles that hold even if the Tailwind CDN is unavailable */
+  html { background: #09090b; color: #e4e4e7; }
+  body { margin: 0; font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+  .hidden { display: none !important; }
+  .tnum { font-variant-numeric: tabular-nums; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  button { font: inherit; color: inherit; }
+  input, textarea, select { font: inherit; }
+  input[type="checkbox"] { width: 1.15rem; height: 1.15rem; accent-color: #10b981; }
+  input[type="checkbox"]:disabled { accent-color: #52525b; }
+  details > summary { list-style: none; cursor: pointer; }
+  details > summary::-webkit-details-marker { display: none; }
+  details[open] .chev { transform: rotate(180deg); }
+  .chev { transition: transform .15s ease; }
+  .breath { transition: transform 5.5s ease-in-out; transform: scale(1); }
+  .breath.in { transform: scale(1.75); }
+  .gauge { transition: width .4s ease; }
+  .fade-in { animation: fade .18s ease-out; }
+  @keyframes fade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } .breath { transition: transform 5.5s linear; } }
+  ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+</style>
+</head>
+<body class="bg-[#09090b] text-zinc-200 min-h-screen antialiased">
+
+<!-- ===================== HEADER & CHRONOMETER BAR ===================== -->
+<header class="sticky top-0 z-30 border-b border-zinc-800 bg-[#09090b]/95 backdrop-blur">
+  <div class="mx-auto max-w-6xl px-4 py-3">
+    <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+      <div class="flex items-center gap-3">
+        <div class="flex h-9 w-9 items-center justify-center rounded border border-zinc-700 bg-zinc-900 text-emerald-400">
+          <i data-lucide="activity" class="h-5 w-5"></i>
+        </div>
+        <div>
+          <h1 class="text-sm font-semibold tracking-wide text-zinc-100">OS-v1.0 <span class="text-zinc-500">|</span> 90-Day Execution Engine</h1>
+          <p id="hdr-date" class="mono text-xs text-zinc-500">—</p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
+        <div class="text-right">
+          <p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Day</p>
+          <p class="mono tnum text-2xl font-bold leading-none text-zinc-100"><span id="hdr-day">0</span><span class="text-sm text-zinc-500"> / 90</span></p>
+        </div>
+        <div class="text-right">
+          <p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Phase</p>
+          <p id="hdr-phase" class="text-sm font-semibold text-zinc-100">—</p>
+        </div>
+        <div class="text-right">
+          <p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">ICERP Mumbai · 14–16 Dec</p>
+          <p id="hdr-icerp" class="mono tnum text-sm font-semibold text-zinc-100">—</p>
+        </div>
+        <div class="text-right">
+          <p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Clock</p>
+          <p id="hdr-clock" class="mono tnum text-sm font-semibold text-zinc-100">--:--:--</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button id="btn-battery" data-action="toggle-battery" type="button" aria-pressed="false"
+          class="flex items-center gap-2 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-semibold text-zinc-300 hover:border-zinc-500">
+          <i data-lucide="battery-low" class="h-4 w-4"></i><span id="btn-battery-label">10% Battery / High Fatigue Mode: OFF</span>
+        </button>
+        <button data-action="open-reset" type="button"
+          class="flex items-center gap-2 rounded border-2 border-rose-400 bg-rose-600 px-4 py-2 text-sm font-black tracking-[0.12em] text-white hover:bg-rose-500 active:bg-rose-700 focus:outline-none focus:ring-2 focus:ring-rose-300">
+          <i data-lucide="alert-octagon" class="h-4 w-4"></i>FREEZE RESET
+        </button>
+      </div>
+    </div>
+
+    <div id="battery-banner" class="hidden mt-3 rounded border border-amber-500/60 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+      10% Battery mode is ON. Every checklist item is showing its emergency failsafe version. Failsafe items count in full. After the four: 20-minute sunset walk, early bed. Nothing further is owed today.
+    </div>
+
+    <!-- ===================== NAVIGATION TABS ===================== -->
+    <nav class="mt-3 -mb-3 flex gap-1 overflow-x-auto" role="tablist" aria-label="Sections">
+      <button data-tab="today" role="tab" type="button" class="tab-btn"><i data-lucide="list-checks" class="h-4 w-4"></i>Today's Command Center</button>
+      <button data-tab="tomorrow" role="tab" type="button" class="tab-btn"><i data-lucide="moon" class="h-4 w-4"></i>Tomorrow's Staging</button>
+      <button data-tab="science" role="tab" type="button" class="tab-btn"><i data-lucide="flask-conical" class="h-4 w-4"></i>Science Library</button>
+      <button data-tab="commercial" role="tab" type="button" class="tab-btn"><i data-lucide="briefcase" class="h-4 w-4"></i>Commercial Sprint &amp; Runway</button>
+      <button data-tab="parking" role="tab" type="button" class="tab-btn"><i data-lucide="parking-circle" class="h-4 w-4"></i>Parking Lot &amp; Notes</button>
+    </nav>
+  </div>
+</header>
+
+<main id="app" class="mx-auto max-w-6xl px-4 py-6 fade-in"></main>
+
+<footer class="mx-auto max-w-6xl px-4 pb-12 pt-4 text-xs text-zinc-500">
+  <div class="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 pt-4">
+    <p id="persist-note">Saved on this device, in this browser.</p>
+    <div class="flex gap-2">
+      <button data-action="export" type="button" class="rounded border border-zinc-700 px-3 py-1.5 hover:border-zinc-500">Export backup (JSON)</button>
+      <button data-action="import" type="button" class="rounded border border-zinc-700 px-3 py-1.5 hover:border-zinc-500">Import backup</button>
+      <input id="import-file" type="file" accept="application/json,.json" class="hidden" />
+      <button data-action="wipe" type="button" class="rounded border border-zinc-800 px-3 py-1.5 text-zinc-600 hover:border-rose-500 hover:text-rose-300">Wipe all data</button>
+    </div>
+  </div>
+  <p class="mt-3">Never twice in a row. A missed day is not a broken system.</p>
+</footer>
+
+<!-- ===================== FREEZE RESET MODAL ===================== -->
+<div id="reset-modal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-[#09090b]" role="dialog" aria-modal="true" aria-labelledby="reset-title">
+  <div class="mx-auto max-w-3xl px-4 py-6">
+    <div class="flex items-start justify-between gap-4">
+      <div>
+        <p class="text-[10px] uppercase tracking-[0.25em] text-rose-400">Freeze Reset · 7-Step Panic Protocol</p>
+        <h2 id="reset-title" class="mt-1 text-2xl font-bold text-zinc-100">Freeze detected. Any hour.</h2>
+        <p class="mt-1 text-sm text-zinc-400">No decision is required. Ride the urge for 90 seconds if it is spiking, then do step 1. Both exits at the bottom are success states.</p>
+      </div>
+      <button data-action="close-reset" type="button" class="rounded border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:border-zinc-500">Close</button>
+    </div>
+
+    <div class="mt-5 grid gap-5 md:grid-cols-5">
+      <!-- Urge timer -->
+      <section class="md:col-span-2 rounded border border-zinc-800 bg-[#18181b] p-4">
+        <p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">90-Second Urge Timer</p>
+        <div class="relative mx-auto mt-4 flex h-52 w-52 items-center justify-center">
+          <div class="absolute inset-0 rounded-full border border-zinc-800"></div>
+          <div id="breath-circle" class="breath h-24 w-24 rounded-full bg-emerald-500/25 ring-2 ring-emerald-400"></div>
+          <div class="absolute inset-0 flex flex-col items-center justify-center">
+            <p id="urge-phase" class="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">Ready</p>
+            <p id="urge-time" class="mono tnum text-4xl font-bold text-zinc-100">90</p>
+            <p class="text-[10px] text-zinc-500">seconds</p>
+          </div>
+        </div>
+        <p class="mt-3 text-center text-xs text-zinc-400">Inhale 5.5 s as the circle grows, exhale 5.5 s as it shrinks. Urges crest and fall inside 90 seconds.</p>
+        <div class="mt-3 flex justify-center gap-2">
+          <button data-action="urge-start" type="button" class="rounded border-2 border-emerald-400 bg-emerald-500 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-emerald-400">Start</button>
+          <button data-action="urge-stop" type="button" class="rounded border border-zinc-600 px-4 py-2 text-sm font-semibold text-zinc-200 hover:border-zinc-400">Stop</button>
+          <button data-action="urge-reset" type="button" class="rounded border border-zinc-700 px-4 py-2 text-sm text-zinc-400 hover:border-zinc-500">Reset</button>
+        </div>
+        <p id="urge-done" class="hidden mt-3 rounded border border-emerald-500/60 bg-emerald-500/10 p-2 text-center text-sm font-semibold text-emerald-200">Urge ridden. Now do step 1.</p>
+      </section>
+
+      <!-- Steps -->
+      <section class="md:col-span-3 rounded border border-zinc-800 bg-[#18181b] p-4">
+        <p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Protocol · tap each step as you do it</p>
+        <ol id="reset-steps" class="mt-3 space-y-2"></ol>
+        <div id="reset-maintained" class="hidden mt-4 rounded border border-emerald-500/60 bg-emerald-500/10 p-3">
+          <p class="font-semibold text-emerald-200">Steps 1–6 done. Today counts as a maintained day.</p>
+          <p class="mt-1 text-sm text-emerald-200/70">Battery check, then choose one exit.</p>
+          <div class="mt-3 grid gap-2">
+            <button data-action="reset-exit-continue" type="button" class="rounded border-2 border-emerald-400 bg-emerald-500 px-3 py-3 text-sm font-bold text-zinc-950 hover:bg-emerald-400">Above 10% — back to the day: cafe block, one message</button>
+            <button data-action="reset-exit-maintenance" type="button" class="rounded border-2 border-amber-400 bg-amber-400 px-3 py-3 text-sm font-bold text-zinc-950 hover:bg-amber-300">Below 10% — maintenance day: coast, sunset walk, early bed</button>
+          </div>
+        </div>
+        <div class="mt-4 flex items-center justify-between text-xs text-zinc-500">
+          <span>Guilt is not an output of this procedure.</span>
+          <button data-action="reset-steps-clear" type="button" class="underline decoration-zinc-700 hover:text-zinc-300">Start over</button>
+        </div>
+        <label class="mt-4 block text-xs text-zinc-500">Safe Man's number (for step 7; stays on this device)
+          <input id="safe-man" data-bind="safeMan" type="tel" placeholder="+91 98765 43210" class="mt-1 w-full rounded border border-zinc-700 bg-[#09090b] px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-zinc-400" />
+        </label>
+      </section>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="hidden pointer-events-none fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm text-zinc-100"></div>
+
+<script>
+/* =====================================================================
+   OS-v1 COCKPIT — application logic (vanilla JS, no build step)
+   ===================================================================== */
+(function () {
+  "use strict";
+
+  /* ---------- constants ---------- */
+  const STORAGE_KEY = "osv1.cockpit.v1";
+  const START = { y: 2026, m: 9, d: 9 };                 // Day 1: Wednesday 9 September 2026
+  const ICERP_START = new Date(2026, 11, 14, 0, 0, 0);   // 14 December 2026
+  const ICERP_END = new Date(2026, 11, 16, 23, 59, 59);  // 16 December 2026
+  const INITIAL_CAPITAL = 600000;
+  const LEAN_BURN = 52000;
+  const CALL_TARGET = 10;
+
+  const DEFAULT_SCRIPT = "Hi [Name], I'm building an agro-waste fibre sourcing business from scratch in Gujarat and doing ground-level validation before I commit capital. Could I take fifteen minutes this week to ask you three questions about banana fibre supply, grades and pricing?";
+
+  const ITEMS = [
+    {
+      id: "wake",
+      label: "Fixed wake + dawn light walk within 10 minutes",
+      anchor: (w) => w,
+      full: (w) => "Up at " + w + ". Outside within 10 minutes: a 10–20 minute walk, nose breathing, no phone.",
+      low: (w) => "Up at " + w + ". Five minutes on the doorstep, face to the sky. That is the whole item."
+    },
+    {
+      id: "phone",
+      label: "Phone outside the sleeping bedroom overnight; TV-room bed decommissioned",
+      anchor: () => "Overnight",
+      full: () => "Phone charged in the kitchen last night. The TV-room bed is out of service: no mattress, no cable, no laptop.",
+      low: () => "No downgrade exists for this one. Tick it if it happened; the charger goes to the kitchen tonight regardless."
+    },
+    {
+      id: "protein",
+      label: "Breakfast within the hour (30–40 g protein, under 3 minutes prep)",
+      anchor: (w) => "by " + plusMinutes(w, 60),
+      full: () => "Three eggs, or two eggs with curd or paneer, sourdough from the freezer, fruit, the peas.",
+      low: () => "Zero-cook: curd, fruit, 30 g nuts or roasted chana. No stove, no decision."
+    },
+    {
+      id: "rep",
+      label: "10:15 Cafe Block + 1 B2B contact rep sent",
+      anchor: () => "10:15",
+      full: () => "90–120 minutes at the cafe. One message or call to one real person about the business. Sent counts as done.",
+      low: () => "One pre-drafted message sent from the phone, from anywhere. Cafe optional. Comms window skipped."
+    }
+  ];
+
+  const RESET_STEPS = [
+    { t: "Feet on floor", d: "Sit up, both feet flat. Nothing else yet." },
+    { t: "Drink 500 ml water", d: "The bottle beside the bed. Most of it." },
+    { t: "Outside for 5 minutes", d: "Doorstep or balcony. No phone. Face toward the sky." },
+    { t: "Brush teeth", d: "Two minutes. This is also inflammation control." },
+    { t: "Emergency instant protein", d: "Curd, a scoop in the shaker, or nuts. No stove." },
+    { t: "10-minute walk", d: "Out the door, nose breathing, turn around at five minutes." },
+    { t: "Text Safe Man: 'Reset executed.'", d: "Three words. No explanation owed." }
+  ];
+
+  const STAGING_GROUPS = [
+    { id: "wardrobe", icon: "shirt", title: "Wardrobe", text: "Morning walk clothes and shoes placed directly beside the bed. Cafe outfit laid out on a chair." },
+    { id: "nutrition", icon: "egg", title: "Nutrition", text: "Water bottle filled at the bedside. Protein scoop and shaker pre-staged on the kitchen counter. Frozen peas and sourdough checked." },
+    { id: "tech", icon: "laptop", title: "Tech", text: "Laptop and AirPods plugged in and charging in the office. Not in the TV room." },
+    { id: "operations", icon: "package", title: "Operations", text: "Gym bag packed (Phase 2 onward). Laundry machine loaded or started if needed." }
+  ];
+
+  const WIND_DOWN = [
+    { id: "lights", time: "21:00", text: "Lights dimmed." },
+    { id: "screens", time: "22:30", text: "Screens off." },
+    { id: "breath", time: "22:35", text: "Five minutes of 5.5-second breathing." },
+    { id: "charger", time: "22:40", text: "Phone charger docked in the kitchen." }
+  ];
+
+  const CALL_STATUSES = ["Not called", "Called", "Awaiting reply", "Quote received", "Sample requested", "Dead end"];
+
+  /* ---------- storage ---------- */
+  const memory = {};
+  let persistent = false;
+  try { localStorage.setItem("osv1.test", "1"); localStorage.removeItem("osv1.test"); persistent = true; } catch (e) { persistent = false; }
+
+  function defaultState() {
+    return {
+      days: {},
+      staging: {},
+      calls: [],
+      parking: [],
+      settings: { capital: INITIAL_CAPITAL, burn: LEAN_BURN, safeMan: "", script: DEFAULT_SCRIPT },
+      ui: { tab: "today" }
+    };
+  }
+
+  function loadState() {
+    let raw = null;
+    try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) { raw = memory[STORAGE_KEY] || null; }
+    if (!raw) return defaultState();
+    try {
+      const parsed = JSON.parse(raw);
+      const base = defaultState();
+      return {
+        days: parsed.days || base.days,
+        staging: parsed.staging || base.staging,
+        calls: Array.isArray(parsed.calls) ? parsed.calls : base.calls,
+        parking: Array.isArray(parsed.parking) ? parsed.parking : base.parking,
+        settings: Object.assign(base.settings, parsed.settings || {}),
+        ui: Object.assign(base.ui, parsed.ui || {})
+      };
+    } catch (e) { return defaultState(); }
+  }
+
+  function saveState() {
+    const raw = JSON.stringify(state);
+    memory[STORAGE_KEY] = raw;
+    try { localStorage.setItem(STORAGE_KEY, raw); } catch (e) { /* memory only */ }
+  }
+
+  /* ---------- date helpers ---------- */
+  const pad = (n) => String(n).padStart(2, "0");
+  const keyOf = (d) => d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  const dateOf = (key) => { const p = key.split("-").map(Number); return new Date(p[0], p[1] - 1, p[2]); };
+  const todayKey = () => keyOf(new Date());
+  const shiftKey = (key, n) => { const d = dateOf(key); d.setDate(d.getDate() + n); return keyOf(d); };
+  const startDate = () => new Date(START.y, START.m - 1, START.d);
+  const dayNumberOf = (key) => Math.round((dateOf(key) - startDate()) / 86400000) + 1;
+  const phaseOf = (n) => (n < 1 ? "Before Day 1" : n <= 14 ? "Phase 1 · Foundation" : n <= 45 ? "Phase 2 · Completion Engine" : n <= 90 ? "Phase 3 · Acceleration" : "Beyond Day 90");
+  const phaseIndex = (n) => (n < 1 ? 0 : n <= 14 ? 1 : n <= 45 ? 2 : n <= 90 ? 3 : 4);
+  const wakeOf = (n) => (n <= 3 ? "08:30" : n <= 7 ? "08:00" : "07:30");
+  const outdoorGoalMin = (n) => (phaseIndex(n) <= 1 ? 120 : phaseIndex(n) === 2 ? 180 : 240);
+  function plusMinutes(hhmm, mins) { const p = hhmm.split(":").map(Number); const t = p[0] * 60 + p[1] + mins; return pad(Math.floor(t / 60) % 24) + ":" + pad(t % 60); }
+  const longDate = (key) => dateOf(key).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const shortDate = (key) => dateOf(key).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+  const hm = (iso) => { const d = new Date(iso); return pad(d.getHours()) + ":" + pad(d.getMinutes()); };
+  const stamp = (iso) => new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  const fmtMoney = (n) => "₹" + Math.round(n).toLocaleString("en-IN");
+  const fmtDur = (sec) => { sec = Math.max(0, Math.floor(sec)); const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60; return (h ? h + "h " : "") + pad(m) + "m " + pad(s) + "s"; };
+  const esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+  function emptyDay() { return { done: {}, cigs: [], coffee: [], outdoorSec: 0, outdoorRunSince: null, battery: false, resets: [] }; }
+  function emptyStaging() { return { wardrobe: false, nutrition: false, tech: false, operations: false, ignition: "", wind: {}, complete: false }; }
+
+  /* ---------- state ---------- */
+  let state = loadState();
+  let currentKey = todayKey();
+  function day(key) { if (!state.days[key]) state.days[key] = emptyDay(); return state.days[key]; }
+  function staging(key) { if (!state.staging[key]) state.staging[key] = emptyStaging(); return state.staging[key]; }
+  function commit() { saveState(); }
+
+  /* ---------- icons ---------- */
+  function icons() { try { if (window.lucide && window.lucide.createIcons) window.lucide.createIcons(); } catch (e) { /* icons are decorative */ } }
+
+  /* ---------- toast ---------- */
+  let toastTimer = null;
+  function toast(msg) {
+    const el = document.getElementById("toast");
+    el.textContent = msg; el.classList.remove("hidden");
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.add("hidden"), 1800);
+  }
+
+  /* ---------- header ---------- */
+  function renderHeader() {
+    const key = currentKey, n = dayNumberOf(key);
+    const now = new Date();
+    document.getElementById("hdr-date").textContent = longDate(key);
+    document.getElementById("hdr-day").textContent = n < 1 ? "0" : String(n);
+    document.getElementById("hdr-phase").textContent = phaseOf(n);
+    document.getElementById("hdr-clock").textContent = pad(now.getHours()) + ":" + pad(now.getMinutes()) + ":" + pad(now.getSeconds());
+
+    const midnight = dateOf(key);
+    let icerp;
+    if (now > ICERP_END) icerp = "Concluded";
+    else if (now >= ICERP_START) icerp = "LIVE NOW";
+    else { const dl = Math.round((ICERP_START - midnight) / 86400000); icerp = "T-" + dl + " days"; }
+    document.getElementById("hdr-icerp").textContent = icerp;
+
+    const b = day(key).battery;
+    const btn = document.getElementById("btn-battery");
+    btn.setAttribute("aria-pressed", b ? "true" : "false");
+    btn.className = "flex items-center gap-2 rounded border px-3 py-2 text-xs font-semibold " + (b ? "border-amber-400 bg-amber-500/20 text-amber-200" : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500");
+    document.getElementById("btn-battery-label").textContent = "10% Battery / High Fatigue Mode: " + (b ? "ON" : "OFF");
+    document.getElementById("battery-banner").classList.toggle("hidden", !b);
+
+    document.querySelectorAll(".tab-btn").forEach((t) => {
+      const active = t.dataset.tab === state.ui.tab;
+      t.className = "tab-btn flex shrink-0 items-center gap-2 border-b-2 px-3 py-2 text-xs font-semibold " + (active ? "border-emerald-400 text-zinc-100" : "border-transparent text-zinc-500 hover:text-zinc-300");
+      t.setAttribute("aria-selected", active ? "true" : "false");
+    });
+  }
+
+  /* ---------- tab 1: today ---------- */
+  function renderToday() {
+    const key = currentKey, n = dayNumberOf(key), d = day(key), wake = wakeOf(Math.max(1, n));
+    const done = ITEMS.filter((i) => d.done[i.id]).length;
+    const stagedRep = (state.staging[key] && state.staging[key].ignition) ? state.staging[key].ignition : "";
+    const yKey = shiftKey(key, -1), y = state.days[yKey];
+    const yesterdayZero = n > 1 && (!y || ITEMS.every((i) => !y.done[i.id]));
+
+    const items = ITEMS.map((it) => {
+      const checked = !!d.done[it.id];
+      const desc = d.battery ? it.low(wake) : it.full(wake);
+      const extra = it.id === "rep" && stagedRep ? '<p class="mt-2 rounded border border-zinc-700 bg-[#09090b] px-2 py-1.5 text-xs text-zinc-300"><span class="text-zinc-500">Staged last night: </span>' + esc(stagedRep) + "</p>" : "";
+      return (
+        '<label class="flex cursor-pointer gap-3 rounded border p-3 ' + (checked ? "border-emerald-500/60 bg-emerald-500/10" : "border-zinc-800 bg-[#18181b] hover:border-zinc-600") + '">' +
+        '<input type="checkbox" data-check="' + it.id + '" ' + (checked ? "checked" : "") + ' class="mt-1 shrink-0" />' +
+        '<span class="min-w-0 flex-1">' +
+        '<span class="flex flex-wrap items-baseline justify-between gap-2">' +
+        '<span class="text-sm font-semibold ' + (checked ? "text-emerald-200" : "text-zinc-100") + '">' + esc(it.label) + "</span>" +
+        '<span class="mono tnum text-xs ' + (checked ? "text-emerald-300" : "text-zinc-500") + '">' + esc(it.anchor(wake)) + "</span>" +
+        "</span>" +
+        '<span class="mt-1 block text-xs leading-snug ' + (checked ? "text-emerald-200/60" : d.battery ? "text-amber-200/80" : "text-zinc-400") + '">' + esc(desc) + "</span>" +
+        extra +
+        "</span></label>"
+      );
+    }).join("");
+
+    const cigFirst = d.cigs.length ? hm(d.cigs[0]) : "—";
+    const cigWarn = d.cigs.length && !d.done.protein ? '<p class="mt-2 rounded border border-rose-500/50 bg-rose-500/10 px-2 py-1.5 text-xs text-rose-200">First cigarette logged before breakfast was ticked. Rule broken; note it, do not spiral. Next one after food, outdoors, standing.</p>' : "";
+    const cigList = d.cigs.map((iso) => '<span class="mono tnum rounded border border-zinc-700 px-1.5 py-0.5 text-[11px] text-zinc-400">' + hm(iso) + "</span>").join(" ");
+
+    const coffeeList = d.coffee.map((iso) => '<span class="mono tnum rounded border border-zinc-700 px-1.5 py-0.5 text-[11px] text-zinc-400">' + hm(iso) + "</span>").join(" ");
+    const overCoffee = d.coffee.length > 2;
+
+    const goal = outdoorGoalMin(n) * 60;
+    const running = !!d.outdoorRunSince;
+
+    return (
+      '<div class="grid gap-4 lg:grid-cols-3">' +
+      // checklist
+      '<section class="lg:col-span-2 rounded border border-zinc-800 bg-[#09090b]">' +
+      '<div class="flex items-baseline justify-between border-b border-zinc-800 px-4 py-3">' +
+      '<div><p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Phase 1 Non-Negotiables</p><h2 class="text-base font-semibold text-zinc-100">Today\u2019s four</h2></div>' +
+      '<p class="mono tnum text-sm font-semibold ' + (done === 4 ? "text-emerald-300" : "text-zinc-400") + '">' + done + " / 4</p></div>" +
+      '<div class="space-y-2 p-4">' + items + "</div>" +
+      (done === 4 ? '<p class="mx-4 mb-4 rounded border border-emerald-500/50 bg-emerald-500/10 p-3 text-sm font-semibold text-emerald-200">Four of four. Nothing else is owed. Sunset walk, people, screens off at 22:30.</p>' : "") +
+      (yesterdayZero && done < 4 ? '<p class="mx-4 mb-4 rounded border border-rose-500/60 bg-rose-500/10 p-3 text-sm font-semibold text-rose-200">Yesterday nothing was ticked. Never twice in a row: today\u2019s four are the whole job.</p>' : "") +
+      '<div class="border-t border-zinc-800 px-4 py-3">' +
+      '<p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Schedule anchors · ' + esc(phaseOf(n)) + "</p>" +
+      '<div class="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-zinc-400 sm:grid-cols-3">' +
+      '<p><span class="mono tnum text-zinc-200">' + wake + "</span> Wake, water, feet on floor</p>" +
+      '<p><span class="mono tnum text-zinc-200">' + plusMinutes(wake, 10) + "</span> Outside, light walk</p>" +
+      '<p><span class="mono tnum text-zinc-200">' + plusMinutes(wake, 30) + "</span> Breakfast</p>" +
+      '<p><span class="mono tnum text-zinc-200">10:15</span> Cafe block + rep</p>' +
+      '<p><span class="mono tnum text-zinc-200">13:00</span> Caffeine cutoff</p>' +
+      '<p><span class="mono tnum text-zinc-200">16:45</span> Sunset walk</p>' +
+      '<p><span class="mono tnum text-zinc-200">21:00</span> Lights dim</p>' +
+      '<p><span class="mono tnum text-zinc-200">22:30</span> Screens off</p>' +
+      '<p><span class="mono tnum text-zinc-200">23:00</span> Bed</p>' +
+      "</div></div></section>" +
+
+      // counters column
+      '<div class="space-y-4">' +
+      // cigarettes
+      '<section class="rounded border border-zinc-800 bg-[#18181b] p-4">' +
+      '<div class="flex items-baseline justify-between"><p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Cigarette Taper Tracker</p><span class="mono tnum text-2xl font-bold text-zinc-100">' + d.cigs.length + "</span></div>" +
+      '<p class="mt-1 text-xs text-zinc-400">Phase 1 rule: first only after light + breakfast, outdoors, standing, phone-free. First today: <span class="mono tnum text-zinc-200">' + cigFirst + "</span></p>" +
+      '<div class="mt-3 flex gap-2"><button data-action="cig-add" type="button" class="flex-1 rounded border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm font-semibold text-zinc-100 hover:border-zinc-400">+ Log one</button><button data-action="cig-undo" type="button" class="rounded border border-zinc-700 px-3 py-2 text-sm text-zinc-400 hover:border-zinc-500">Undo</button></div>' +
+      (cigList ? '<div class="mt-2 flex flex-wrap gap-1">' + cigList + "</div>" : "") + cigWarn +
+      "</section>" +
+      // caffeine
+      '<section class="rounded border border-zinc-800 bg-[#18181b] p-4">' +
+      '<div class="flex items-baseline justify-between"><p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Caffeine Cutoff · 13:00</p><span id="caf-countdown" class="mono tnum text-lg font-bold text-zinc-100">—</span></div>' +
+      '<p class="mt-1 text-xs text-zinc-400">Maximum two cups, none after 13:00. Cups: <span class="mono tnum ' + (overCoffee ? "text-rose-300" : "text-zinc-200") + '">' + d.coffee.length + " / 2</span></p>" +
+      '<div class="mt-3 flex gap-2"><button data-action="coffee-add" type="button" class="flex-1 rounded border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm font-semibold text-zinc-100 hover:border-zinc-400">+ Cup</button><button data-action="coffee-undo" type="button" class="rounded border border-zinc-700 px-3 py-2 text-sm text-zinc-400 hover:border-zinc-500">Undo</button></div>' +
+      (coffeeList ? '<div class="mt-2 flex flex-wrap gap-1">' + coffeeList + "</div>" : "") +
+      (overCoffee ? '<p class="mt-2 rounded border border-rose-500/50 bg-rose-500/10 px-2 py-1.5 text-xs text-rose-200">Over the two-cup maximum. Tonight\u2019s sleep pays for it; keep tomorrow at two.</p>' : "") +
+      "</section>" +
+      // outdoor
+      '<section class="rounded border border-zinc-800 bg-[#18181b] p-4">' +
+      '<div class="flex items-baseline justify-between"><p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Daily Outdoor Time</p><span id="out-time" class="mono tnum text-lg font-bold text-zinc-100">' + fmtDur(d.outdoorSec) + "</span></div>" +
+      '<p class="mt-1 text-xs text-zinc-400">Goal ' + (goal / 3600) + " h for " + esc(phaseOf(n)) + ".</p>" +
+      '<div class="mt-2 h-2 w-full overflow-hidden rounded bg-zinc-800"><div id="out-bar" class="gauge h-full bg-emerald-500" style="width:' + Math.min(100, (d.outdoorSec / goal) * 100).toFixed(1) + '%"></div></div>' +
+      '<div class="mt-3 flex gap-2">' +
+      (running
+        ? '<button data-action="out-stop" type="button" class="flex-1 rounded border-2 border-emerald-400 bg-emerald-500 px-3 py-2 text-sm font-bold text-zinc-950 hover:bg-emerald-400">Stop (outside now)</button>'
+        : '<button data-action="out-start" type="button" class="flex-1 rounded border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm font-semibold text-zinc-100 hover:border-zinc-400">Start · going outside</button>') +
+      "</div>" +
+      '<div class="mt-2 flex gap-2 text-xs"><button data-action="out-add" data-min="10" type="button" class="flex-1 rounded border border-zinc-700 px-2 py-1.5 text-zinc-300 hover:border-zinc-500">+10 min</button><button data-action="out-add" data-min="20" type="button" class="flex-1 rounded border border-zinc-700 px-2 py-1.5 text-zinc-300 hover:border-zinc-500">+20 min</button><button data-action="out-add" data-min="30" type="button" class="flex-1 rounded border border-zinc-700 px-2 py-1.5 text-zinc-300 hover:border-zinc-500">+30 min</button><button data-action="out-clear" type="button" class="rounded border border-zinc-800 px-2 py-1.5 text-zinc-600 hover:border-zinc-600">Clear</button></div>' +
+      "</section>" +
+      // resets today
+      '<section class="rounded border border-zinc-800 bg-[#18181b] p-4">' +
+      '<div class="flex items-baseline justify-between"><p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Freeze resets today</p><span class="mono tnum text-lg font-bold text-zinc-100">' + d.resets.length + "</span></div>" +
+      '<p class="mt-1 text-xs text-zinc-400">' + (d.resets.length ? "Used at " + d.resets.map(hm).join(", ") + ". Each one is the system working." : "None. The red button is there for any hour.") + "</p>" +
+      "</section>" +
+      "</div></div>"
+    );
+  }
+
+  /* ---------- tab 2: tomorrow ---------- */
+  function renderTomorrow() {
+    const tKey = shiftKey(currentKey, 1), tn = dayNumberOf(tKey), s = staging(tKey);
+    const wake = wakeOf(Math.max(1, tn));
+    const ignitionOk = s.ignition.trim().length >= 8;
+    const groupsDone = STAGING_GROUPS.filter((g) => s[g.id]).length;
+    const windDone = WIND_DOWN.filter((w) => s.wind[w.id]).length;
+    const allDone = groupsDone === STAGING_GROUPS.length && windDone === WIND_DOWN.length && ignitionOk;
+
+    const groups = STAGING_GROUPS.map((g) => {
+      const checked = !!s[g.id];
+      const note = g.id === "operations" && tn <= 14 ? ' <span class="text-zinc-500">(Phase 1: laundry only; gym bag from Day 15)</span>' : "";
+      return (
+        '<label class="flex cursor-pointer gap-3 rounded border p-3 ' + (checked ? "border-emerald-500/60 bg-emerald-500/10" : "border-zinc-800 bg-[#18181b] hover:border-zinc-600") + '">' +
+        '<input type="checkbox" data-stage="' + g.id + '" ' + (checked ? "checked" : "") + ' class="mt-1 shrink-0" />' +
+        '<span class="min-w-0"><span class="flex items-center gap-2 text-sm font-semibold ' + (checked ? "text-emerald-200" : "text-zinc-100") + '"><i data-lucide="' + g.icon + '" class="h-4 w-4"></i>' + esc(g.title) + "</span>" +
+        '<span class="mt-1 block text-xs leading-snug ' + (checked ? "text-emerald-200/60" : "text-zinc-400") + '">' + esc(g.text) + note + "</span></span></label>"
+      );
+    }).join("");
+
+    const wind = WIND_DOWN.map((w) => {
+      const checked = !!s.wind[w.id];
+      return (
+        '<label class="flex items-center gap-3 rounded border p-3 ' + (ignitionOk ? "cursor-pointer " : "cursor-not-allowed opacity-60 ") + (checked ? "border-emerald-500/60 bg-emerald-500/10" : "border-zinc-800 bg-[#18181b]") + '">' +
+        '<input type="checkbox" data-wind="' + w.id + '" ' + (checked ? "checked" : "") + (ignitionOk ? "" : " disabled") + ' class="shrink-0" />' +
+        '<span class="mono tnum text-xs text-zinc-400">' + w.time + "</span>" +
+        '<span class="text-sm ' + (checked ? "text-emerald-200" : "text-zinc-100") + '">' + esc(w.text) + "</span></label>"
+      );
+    }).join("");
+
+    return (
+      '<div class="grid gap-4 lg:grid-cols-3">' +
+      '<section class="rounded border border-zinc-800 bg-[#18181b] p-4">' +
+      '<p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Tomorrow</p>' +
+      '<h2 class="mt-1 text-base font-semibold text-zinc-100">' + esc(shortDate(tKey)) + ' <span class="text-zinc-500">· Day ' + (tn < 1 ? "0" : tn) + "</span></h2>" +
+      '<p class="mt-3 text-[10px] uppercase tracking-[0.18em] text-zinc-500">Target wake</p>' +
+      '<p class="mono tnum text-5xl font-bold text-emerald-300">' + wake + "</p>" +
+      '<p class="mt-1 text-xs text-zinc-400">Outside by <span class="mono tnum text-zinc-200">' + plusMinutes(wake, 10) + '</span>. Breakfast by <span class="mono tnum text-zinc-200">' + plusMinutes(wake, 60) + "</span>. Cafe at <span class=\"mono tnum text-zinc-200\">10:15</span>.</p>" +
+      '<p class="mt-3 text-xs text-zinc-500">' + esc(phaseOf(tn)) + ". The wake time slides 08:30 → 08:00 → 07:30 over Days 1–8 and then holds.</p>" +
+      '<div class="mt-4 rounded border border-zinc-800 bg-[#09090b] p-3">' +
+      '<p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Staging status</p>' +
+      '<p class="mono tnum mt-1 text-sm text-zinc-200">Household ' + groupsDone + "/" + STAGING_GROUPS.length + " · Ignition " + (ignitionOk ? "set" : "missing") + " · Wind-down " + windDone + "/" + WIND_DOWN.length + "</p>" +
+      (allDone ? '<p class="mt-2 rounded border border-emerald-500/60 bg-emerald-500/10 px-2 py-1.5 text-xs font-semibold text-emerald-200">Staged. Tomorrow needs no decisions. Bed.</p>' : "") +
+      "</div></section>" +
+
+      '<section class="rounded border border-zinc-800 bg-[#09090b]">' +
+      '<div class="border-b border-zinc-800 px-4 py-3"><p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Household Staging Checklist</p><h2 class="text-base font-semibold text-zinc-100">Mandatory before bed</h2></div>' +
+      '<div class="space-y-2 p-4">' + groups + "</div></section>" +
+
+      '<section class="rounded border border-zinc-800 bg-[#09090b]">' +
+      '<div class="border-b border-zinc-800 px-4 py-3"><p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Tomorrow\u2019s Ignition</p><h2 class="text-base font-semibold text-zinc-100">The 10-minute physical rep</h2></div>' +
+      '<div class="p-4">' +
+      '<label class="block text-xs text-zinc-400">Exact contact name and the message to send at 10:15. Nothing below unlocks until this is written.' +
+      '<textarea data-bind="ignition" rows="4" placeholder="Name of the person. The sentence you will send." class="mt-2 w-full rounded border ' + (ignitionOk ? "border-emerald-500/60" : "border-zinc-700") + ' bg-[#18181b] px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-zinc-400">' + esc(s.ignition) + "</textarea></label>" +
+      '<p class="mono tnum mt-1 text-[11px] ' + (ignitionOk ? "text-emerald-300" : "text-zinc-500") + '">' + (ignitionOk ? "Ignition set. It will appear on tomorrow\u2019s rep item." : "Minimum 8 characters. Contact + message.") + "</p>" +
+      '<p class="mt-4 text-[10px] uppercase tracking-[0.18em] text-zinc-500">Wind-down checklist' + (ignitionOk ? "" : " · locked") + "</p>" +
+      '<div class="mt-2 space-y-2">' + wind + "</div>" +
+      "</div></section></div>"
+    );
+  }
+
+  /* ---------- tab 3: science ---------- */
+  const SCIENCE = [
+    {
+      id: "a", tag: "Deep Dive A", title: "Caffeine × Nicotine — why coffee must track smoking down",
+      body: [
+        "About 95% of caffeine is cleared by the liver enzyme CYP1A2. Polycyclic aromatic hydrocarbons in tobacco smoke (not nicotine itself) induce CYP1A2, so smokers clear caffeine roughly 1.5–2× faster; the effective half-life drops from about 5–6 hours toward about 3 hours. Smokers therefore drink more coffee to feel the same effect, and the two habits become welded together — the morning cigarette-and-coffee pair is pharmacology, not only ritual.",
+        "When smoking stops, the enzyme induction disappears within days to a week. If coffee intake is unchanged, plasma caffeine rises by roughly 50–60%. The result — jitter, anxiety, racing thoughts, insomnia — is routinely misread as nicotine withdrawal, and the person smokes to fix it. This is a documented relapse driver in cessation clinics.",
+        "Second-order effect: caffeine blocks adenosine receptors, and adenosine is the sleep-pressure signal. A late coffee in a fast-clearing smoker's liver hides the problem; on the day of quitting, the same 15:00 coffee is still in the system at midnight — exactly the night the freeze loop restarts.",
+        "Protocol in this cockpit: Days 1–14, two cups and none after 13:00 (the countdown on Tab 1). Days 15–42, coffee tracks cigarettes down to 1.5 cups by Day 29. Quit week (Day 50), one cup before 11:00 for 14 days. If you feel wired and anxious in the quit week, the first suspect is caffeine, not nicotine."
+      ]
+    },
+    {
+      id: "b", tag: "Deep Dive B", title: "Sleep & Dopamine — Volkow 2012 PET findings, D2/D3 downregulation",
+      body: [
+        "Volkow et al. (Journal of Neuroscience, 2012) used PET imaging with a D2/D3 radioligand: a single night of total sleep deprivation reduced D2/D3 receptor availability in the ventral striatum, and the reduction tracked the fall in alertness. The interpretation is receptor downregulation and blunted reward signalling — a sleep-deprived brain both wants stimulation more and responds to it less.",
+        "Related findings: sleep restriction amplifies amygdala reactivity and weakens prefrontal–amygdala connectivity (Yoo et al., 2007) — more threat, less brake — and increases the pull of high-reward, low-effort stimuli. One week at five hours a night lowered daytime testosterone by 10–15% in young men (Leproult & Van Cauter, JAMA 2011).",
+        "Applied to an inverted schedule (02:00 to 08:00–12:00): sleep is shortened on the early nights, the cortisol awakening response lands at noon, the usable day compresses to about eight hours, and a daily two-to-four-hour 'social jet lag' is created that the clock never adapts to. Waking at 11:30 from deep sleep produces sleep inertia, which the reward system answers with the phone.",
+        "Why fixed wake beats fixed bedtime: the circadian clock is set by light at wake, not by lying down. Bedtime follows wake time with a lag of roughly 16 hours once light exposure is consistent. That is why the cockpit anchors the wake time and slides it 08:30 → 08:00 → 07:30 over eight days, with the 'outside by' time ten minutes later. Judge the intervention at Day 21, not Day 7."
+      ]
+    },
+    {
+      id: "c", tag: "Deep Dive C", title: "Co-Regulation — social baseline theory and why the Safe Man neutralizes threat vigilance",
+      body: [
+        "Beckes & Coan (2011) proposed social baseline theory: the human brain treats proximity to trusted others as its default operating condition and budgets effort accordingly. Alone, it runs vigilance and spends prefrontal resources on monitoring for threat. In Coan's 2006 fMRI study, holding a trusted partner's hand under threat of shock reduced activation in threat-processing regions; a stranger's hand helped less. Trusted presence lowers cortisol reactivity.",
+        "Oxytocin release is not exclusive to romance: it rises with trusted friendship, shared physical effort and cooperative goals. Working in the presence of another person (body doubling) improves task initiation in ADHD-pattern adults, which is part of why the cafe block works.",
+        "Why romance-first fails an anxious system: an unregulated nervous system reads intensity as safety and pursues it, and the partners who supply intensity are the volatile ones. A regulated system can tolerate the slower signal of a grounded partner. Order of operations is selection, not moralism.",
+        "The Safe Man's role specification: a weekly 30-minute walk; receives the daily one-line report; signs off each definition of done; holds the Screen Time passcode; knows the father plan and its date; is the recipient of step 7 in the Freeze Reset. Glover's clinical claim applies: shame dissolves when hidden material is revealed to safe people and nothing terrible happens."
+      ]
+    },
+    {
+      id: "d", tag: "Deep Dive D", title: "Economic Reality — banana fibre compound at ₹280–400/kg versus talc at ₹15–40/kg",
+      body: [
+        "Polypropylene runs about ₹100–115/kg; talc and wood-flour fillers cost ₹15–40/kg. For a 30% natural-fibre compound to be cost-neutral, the treated fibre must land under roughly ₹120–150/kg delivered. Treated banana fibre at ₹280–400/kg makes the compound 30–50% more expensive than a mineral-filled one.",
+        "The science is settled — alkaline-peroxide or oxygen-delignified banana fibre in polypropylene via twin-screw compounding and injection moulding is a documented route to automotive parts — but the commercial path is a two- to three-year OEM qualification cycle. Composites are real; they are not a 90-day business.",
+        "Where the rupees actually sit: raw fibre at the extraction-unit gate trades around ₹120–180/kg; cleaned, graded, dried and baled fibre sells at ₹220–350/kg to handicraft, paper, textile and export buyers. One raspador extraction machine grosses only ₹37–56k a month, which is why supply stays fragmented and why the margin lives in aggregation, grading, testing and application rather than in extraction.",
+        "This validates the lean aggregation model on Tab 4: act as a sourcing agent with zero inventory first (5–10% commission on lots), graduate to a fibre bank of graded, lab-tested, traceable lots only when two buyers commit in writing to ₹250/kg or more, and treat composites as a 2028 milestone. The ten validation calls are the R&D, made true."
+      ]
+    }
+  ];
+
+  function renderScience() {
+    const cards = SCIENCE.map((s) =>
+      '<details class="group rounded border border-zinc-800 bg-[#18181b]">' +
+      '<summary class="flex items-center justify-between gap-4 p-4">' +
+      '<span><span class="text-[10px] uppercase tracking-[0.18em] text-emerald-400">' + esc(s.tag) + '</span><span class="mt-1 block text-sm font-semibold text-zinc-100">' + esc(s.title) + "</span></span>" +
+      '<i data-lucide="chevron-down" class="chev h-5 w-5 shrink-0 text-zinc-500"></i></summary>' +
+      '<div class="space-y-3 border-t border-zinc-800 px-4 py-4 text-sm leading-relaxed text-zinc-300">' + s.body.map((p) => "<p>" + esc(p) + "</p>").join("") + "</div></details>"
+    ).join("");
+    return (
+      '<div class="max-w-3xl">' +
+      '<p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">The Science Library · the why</p>' +
+      '<h2 class="mt-1 text-base font-semibold text-zinc-100">Peer-reviewed evidence behind the OS-v1 specification</h2>' +
+      '<p class="mt-1 text-xs text-zinc-500">Population-level findings are stated as such; their application to one person is an inference the 90-day data will confirm or refute.</p>' +
+      '<div class="mt-4 space-y-2">' + cards + "</div></div>"
+    );
+  }
+
+  /* ---------- tab 4: commercial ---------- */
+  function renderCommercial() {
+    const st = state.settings;
+    const capital = Math.max(0, Number(st.capital) || 0), burn = Math.max(0, Number(st.burn) || 0);
+    const pct = Math.max(0, Math.min(100, (capital / INITIAL_CAPITAL) * 100));
+    const months = burn > 0 ? capital / burn : Infinity;
+    const zeroDate = burn > 0 ? new Date(Date.now() + months * 30.4 * 86400000) : null;
+    const overCap = burn > LEAN_BURN;
+    const barColor = pct > 50 ? "bg-emerald-500" : pct > 25 ? "bg-amber-500" : "bg-rose-500";
+    const called = state.calls.filter((c) => c.status !== "Not called").length;
+    const words = st.script.trim() ? st.script.trim().split(/\s+/).length : 0;
+
+    const rows = state.calls.length
+      ? state.calls.map((c) =>
+        "<tr class=\"border-t border-zinc-800 align-top\">" +
+        '<td class="px-2 py-2 text-zinc-100">' + esc(c.contact) + "</td>" +
+        '<td class="px-2 py-2 text-zinc-300">' + esc(c.entity) + "</td>" +
+        '<td class="mono tnum px-2 py-2 text-zinc-300">' + (c.price ? "₹" + esc(c.price) : "—") + "</td>" +
+        '<td class="mono tnum px-2 py-2 text-zinc-300">' + (c.moisture ? esc(c.moisture) + "%" : "—") + "</td>" +
+        '<td class="px-2 py-2 text-zinc-400">' + esc(c.notes) + "</td>" +
+        '<td class="px-2 py-2"><select data-call-status="' + c.id + '" class="rounded border border-zinc-700 bg-[#09090b] px-2 py-1 text-xs text-zinc-200">' +
+        CALL_STATUSES.map((sname) => '<option value="' + esc(sname) + '"' + (c.status === sname ? " selected" : "") + ">" + esc(sname) + "</option>").join("") +
+        "</select></td>" +
+        '<td class="px-2 py-2"><button data-action="call-delete" data-id="' + c.id + '" type="button" class="rounded border border-zinc-800 px-2 py-1 text-xs text-zinc-500 hover:border-rose-500 hover:text-rose-300">Delete</button></td>' +
+        "</tr>"
+      ).join("")
+      : '<tr class="border-t border-zinc-800"><td colspan="7" class="px-2 py-6 text-center text-xs text-zinc-600">No calls logged yet. The first row is the first rep.</td></tr>';
+
+    return (
+      '<div class="space-y-4">' +
+      '<div class="grid gap-4 lg:grid-cols-3">' +
+      // runway
+      '<section class="rounded border border-zinc-800 bg-[#18181b] p-4">' +
+      '<p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Liquid Runway Gauge</p>' +
+      '<p class="mono tnum mt-1 text-3xl font-bold text-zinc-100">' + fmtMoney(capital) + "</p>" +
+      '<p class="text-xs text-zinc-500">of ' + fmtMoney(INITIAL_CAPITAL) + " initial liquid capital</p>" +
+      '<div class="mt-3 h-3 w-full overflow-hidden rounded bg-zinc-800"><div class="gauge h-full ' + barColor + '" style="width:' + pct.toFixed(1) + '%"></div></div>' +
+      '<div class="mt-3 grid grid-cols-2 gap-3 text-xs">' +
+      '<div class="rounded border border-zinc-800 bg-[#09090b] p-2"><p class="text-zinc-500">Runway at this burn</p><p class="mono tnum text-lg font-bold ' + (months < 4 ? "text-rose-300" : months < 8 ? "text-amber-300" : "text-emerald-300") + '">' + (isFinite(months) ? months.toFixed(1) + " mo" : "∞") + "</p></div>" +
+      '<div class="rounded border border-zinc-800 bg-[#09090b] p-2"><p class="text-zinc-500">Capital reaches zero</p><p class="mono tnum text-lg font-bold text-zinc-200">' + (zeroDate ? zeroDate.toLocaleDateString(undefined, { month: "short", year: "numeric" }) : "—") + "</p></div>" +
+      "</div>" +
+      '<div class="mt-3 grid grid-cols-2 gap-2">' +
+      '<label class="text-xs text-zinc-400">Remaining capital (₹)<input data-bind="capital" type="number" min="0" step="1000" value="' + capital + '" class="mono tnum mt-1 w-full rounded border border-zinc-700 bg-[#09090b] px-2 py-1.5 text-sm text-zinc-100 outline-none focus:border-zinc-400" /></label>' +
+      '<label class="text-xs text-zinc-400">Monthly burn (₹)<input data-bind="burn" type="number" min="0" step="500" value="' + burn + '" class="mono tnum mt-1 w-full rounded border ' + (overCap ? "border-rose-500" : "border-zinc-700") + ' bg-[#09090b] px-2 py-1.5 text-sm text-zinc-100 outline-none focus:border-zinc-400" /></label>' +
+      "</div>" +
+      '<p class="mt-2 text-xs ' + (overCap ? "text-rose-300" : "text-zinc-500") + '">Lean cap ' + fmtMoney(LEAN_BURN) + "/month" + (overCap ? " — you are above it by " + fmtMoney(burn - LEAN_BURN) + "." : " — inside the cap.") + "</p>" +
+      '<p class="mt-2 text-[11px] text-zinc-500">Thresholds: under ₹4L, income-floor mode (retainer or agency revenue is the only business priority). Under ₹3L, hard floor: no inventory, no non-recurring spend.</p>' +
+      "</section>" +
+
+      // script drawer
+      '<section class="lg:col-span-2 rounded border border-zinc-800 bg-[#18181b] p-4">' +
+      '<div class="flex flex-wrap items-baseline justify-between gap-2"><p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Script Drawer · B2B validation outreach</p><span class="mono tnum text-xs ' + (words >= 35 && words <= 45 ? "text-emerald-300" : "text-zinc-500") + '">' + words + " words</span></div>" +
+      '<textarea data-bind="script" rows="4" class="mt-2 w-full rounded border border-zinc-700 bg-[#09090b] px-3 py-2 text-sm leading-relaxed text-zinc-100 outline-none focus:border-zinc-400">' + esc(st.script) + "</textarea>" +
+      '<div class="mt-2 flex flex-wrap gap-2"><button data-action="copy-script" type="button" class="flex items-center gap-2 rounded border-2 border-emerald-400 bg-emerald-500 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-emerald-400"><i data-lucide="copy" class="h-4 w-4"></i>Copy message</button><button data-action="script-default" type="button" class="rounded border border-zinc-700 px-3 py-2 text-xs text-zinc-400 hover:border-zinc-500">Restore default</button></div>' +
+      '<p class="mt-2 text-xs text-zinc-500">Replace [Name] before sending. Sent counts as done, whatever the reply. A rejection triggers a 20-minute walk within 30 minutes and the rep is logged complete.</p>' +
+      '<div class="mt-3 grid grid-cols-3 gap-2 text-xs">' +
+      '<div class="rounded border border-zinc-800 bg-[#09090b] p-2"><p class="text-zinc-500">Calls completed</p><p class="mono tnum text-lg font-bold text-zinc-100">' + called + " / " + CALL_TARGET + "</p></div>" +
+      '<div class="rounded border border-zinc-800 bg-[#09090b] p-2"><p class="text-zinc-500">Target window</p><p class="mono tnum text-lg font-bold text-zinc-200">Days 15–24</p></div>' +
+      '<div class="rounded border border-zinc-800 bg-[#09090b] p-2"><p class="text-zinc-500">Deliverable</p><p class="text-sm font-semibold text-zinc-200">6-page sourcing brief</p></div>' +
+      "</div></section></div>" +
+
+      // ledger
+      '<section class="rounded border border-zinc-800 bg-[#09090b]">' +
+      '<div class="border-b border-zinc-800 px-4 py-3"><p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">B2B Sourcing Call Ledger · Phase A validation</p><h2 class="text-base font-semibold text-zinc-100">Extraction units, traders, buyers, NAU, MANTRA, compounder, mentors</h2></div>' +
+      '<form id="call-form" class="grid gap-2 border-b border-zinc-800 p-4 sm:grid-cols-6">' +
+      '<input name="contact" required placeholder="Contact" class="rounded border border-zinc-700 bg-[#18181b] px-2 py-1.5 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-zinc-400" />' +
+      '<input name="entity" placeholder="Entity / role" class="rounded border border-zinc-700 bg-[#18181b] px-2 py-1.5 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-zinc-400" />' +
+      '<input name="price" type="number" step="1" min="0" placeholder="Quote ₹/kg" class="mono rounded border border-zinc-700 bg-[#18181b] px-2 py-1.5 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-zinc-400" />' +
+      '<input name="moisture" type="number" step="0.1" min="0" max="100" placeholder="Moisture %" class="mono rounded border border-zinc-700 bg-[#18181b] px-2 py-1.5 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-zinc-400" />' +
+      '<input name="notes" placeholder="Notes: grade, MOQ, terms, who buys" class="rounded border border-zinc-700 bg-[#18181b] px-2 py-1.5 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-zinc-400 sm:col-span-2" />' +
+      '<select name="status" class="rounded border border-zinc-700 bg-[#18181b] px-2 py-1.5 text-sm text-zinc-200 sm:col-span-2">' + CALL_STATUSES.map((sname) => '<option value="' + esc(sname) + '">' + esc(sname) + "</option>").join("") + "</select>" +
+      '<button type="submit" class="rounded border border-zinc-500 bg-zinc-800 px-3 py-1.5 text-sm font-semibold text-zinc-100 hover:border-zinc-300 sm:col-span-1">Log call</button>' +
+      "</form>" +
+      '<div class="overflow-x-auto"><table class="w-full text-left text-xs"><thead><tr class="text-[10px] uppercase tracking-[0.14em] text-zinc-500"><th class="px-2 py-2">Contact</th><th class="px-2 py-2">Entity</th><th class="px-2 py-2">Quote/kg</th><th class="px-2 py-2">Moisture</th><th class="px-2 py-2">Notes</th><th class="px-2 py-2">Status</th><th class="px-2 py-2"></th></tr></thead><tbody>' + rows + "</tbody></table></div>" +
+      "</section></div>"
+    );
+  }
+
+  /* ---------- tab 5: parking ---------- */
+  function renderParking() {
+    const isSunday = dateOf(currentKey).getDay() === 0;
+    const list = state.parking.length
+      ? state.parking.map((p) =>
+        '<li class="flex items-start justify-between gap-3 rounded border border-zinc-800 bg-[#18181b] p-3">' +
+        '<div class="min-w-0"><p class="break-words text-sm text-zinc-100">' + esc(p.text) + '</p><p class="mono tnum mt-1 text-[11px] text-zinc-500">' + esc(stamp(p.at)) + "</p></div>" +
+        '<button data-action="park-delete" data-id="' + p.id + '" type="button" class="shrink-0 rounded border border-zinc-800 px-2 py-1 text-xs text-zinc-500 hover:border-rose-500 hover:text-rose-300">Delete</button></li>'
+      ).join("")
+      : '<li class="rounded border border-zinc-800 bg-[#18181b] p-4 text-center text-xs text-zinc-600">Nothing parked. Working memory is clear.</li>';
+    return (
+      '<div class="max-w-3xl">' +
+      '<div class="flex items-baseline justify-between"><div><p class="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Novelty Parking Lot &amp; Notes</p><h2 class="mt-1 text-base font-semibold text-zinc-100">Dump it here and let it go</h2></div><span class="mono tnum text-sm text-zinc-500">' + state.parking.length + " parked</span></div>" +
+      '<p class="mt-1 text-xs text-zinc-500">New ideas are read on Sundays only. ' + (isSunday ? "It is Sunday: read, keep or delete." : "Today is not Sunday; parking is for writing, not reading.") + "</p>" +
+      '<form id="park-form" class="mt-4 flex gap-2"><input name="idea" required placeholder="New idea, in one line" class="min-w-0 flex-1 rounded border border-zinc-700 bg-[#18181b] px-3 py-3 text-base text-zinc-100 placeholder-zinc-600 outline-none focus:border-zinc-400" /><button type="submit" class="flex items-center gap-2 rounded border-2 border-zinc-100 bg-zinc-100 px-4 text-sm font-bold text-zinc-950 hover:bg-white"><i data-lucide="parking-circle" class="h-4 w-4"></i>Park Idea</button></form>' +
+      '<ul class="mt-4 space-y-2">' + list + "</ul></div>"
+    );
+  }
+
+  /* ---------- main render ---------- */
+  function render() {
+    renderHeader();
+    const app = document.getElementById("app");
+    const tab = state.ui.tab;
+    let html = "";
+    if (tab === "today") html = renderToday();
+    else if (tab === "tomorrow") html = renderTomorrow();
+    else if (tab === "science") html = renderScience();
+    else if (tab === "commercial") html = renderCommercial();
+    else html = renderParking();
+    app.innerHTML = html;
+    app.classList.remove("fade-in"); void app.offsetWidth; app.classList.add("fade-in");
+    icons();
+    tickLive();
+  }
+
+  /* ---------- live second tick (clock, caffeine countdown, outdoor timer) ---------- */
+  function tickLive() {
+    const now = new Date();
+    const clock = document.getElementById("hdr-clock");
+    if (clock) clock.textContent = pad(now.getHours()) + ":" + pad(now.getMinutes()) + ":" + pad(now.getSeconds());
+
+    const caf = document.getElementById("caf-countdown");
+    if (caf) {
+      const cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 13, 0, 0);
+      const diff = Math.floor((cutoff - now) / 1000);
+      if (diff > 0) { caf.textContent = fmtDur(diff) + " left"; caf.className = "mono tnum text-lg font-bold " + (diff < 3600 ? "text-amber-300" : "text-zinc-100"); }
+      else { caf.textContent = "Cutoff passed"; caf.className = "mono tnum text-lg font-bold text-rose-300"; }
+    }
+
+    const d = state.days[currentKey];
+    const out = document.getElementById("out-time");
+    if (out && d) {
+      const live = d.outdoorSec + (d.outdoorRunSince ? (Date.now() - d.outdoorRunSince) / 1000 : 0);
+      out.textContent = fmtDur(live);
+      const bar = document.getElementById("out-bar");
+      if (bar) bar.style.width = Math.min(100, (live / (outdoorGoalMin(dayNumberOf(currentKey)) * 60)) * 100).toFixed(1) + "%";
+    }
+  }
+
+  setInterval(function () {
+    const k = todayKey();
+    if (k !== currentKey) { currentKey = k; render(); return; }
+    tickLive();
+  }, 1000);
+
+  /* ---------- freeze reset modal ---------- */
+  let resetDone = [];
+  let urge = { running: false, remaining: 90, interval: null, phaseTimer: null, inhale: true };
+
+  function renderResetSteps() {
+    const ol = document.getElementById("reset-steps");
+    const next = RESET_STEPS.findIndex((_, i) => resetDone.indexOf(i) < 0);
+    const safe = (state.settings.safeMan || "").replace(/\s+/g, "");
+    ol.innerHTML = RESET_STEPS.map((s, i) => {
+      const done = resetDone.indexOf(i) >= 0, isNext = i === next;
+      const cls = "flex w-full gap-3 rounded border p-3 text-left " + (done ? "border-emerald-500/60 bg-emerald-500/10" : isNext ? "border-zinc-100 bg-zinc-900" : "border-zinc-800 bg-[#09090b]");
+      const num = '<span class="mono tnum flex h-7 w-7 shrink-0 items-center justify-center rounded border-2 text-sm font-bold ' + (done ? "border-emerald-400 bg-emerald-400 text-zinc-950" : isNext ? "border-zinc-100 text-zinc-100" : "border-zinc-600 text-zinc-500") + '">' + (done ? "✓" : i + 1) + "</span>";
+      const txt = '<span class="min-w-0"><span class="block text-sm font-semibold ' + (done ? "text-emerald-200" : "text-zinc-100") + '">' + esc(s.t) + '</span><span class="mt-0.5 block text-xs ' + (done ? "text-emerald-200/60" : "text-zinc-400") + '">' + esc(s.d) + (i === 6 && safe && !done ? " Tap to open the message." : "") + "</span></span>";
+      if (i === 6 && safe && !done) {
+        return '<li><a href="sms:' + esc(safe) + '?&body=' + encodeURIComponent("Reset executed.") + '" data-action="reset-step" data-step="' + i + '" class="' + cls + '">' + num + txt + "</a></li>";
+      }
+      return '<li><button type="button" data-action="reset-step" data-step="' + i + '" aria-pressed="' + (done ? "true" : "false") + '" class="' + cls + '">' + num + txt + "</button></li>";
+    }).join("");
+    const maintained = [0, 1, 2, 3, 4, 5].every((i) => resetDone.indexOf(i) >= 0);
+    document.getElementById("reset-maintained").classList.toggle("hidden", !maintained);
+  }
+
+  function openReset() {
+    day(currentKey).resets.push(new Date().toISOString()); commit();
+    resetDone = [];
+    urgeReset();
+    document.getElementById("safe-man").value = state.settings.safeMan || "";
+    renderResetSteps();
+    document.getElementById("reset-modal").classList.remove("hidden");
+    document.body.style.overflow = "hidden";
+    icons();
+    render();
+  }
+  function closeReset() {
+    urgeStop();
+    document.getElementById("reset-modal").classList.add("hidden");
+    document.body.style.overflow = "";
+  }
+
+  function setBreath(inhale) {
+    const c = document.getElementById("breath-circle"), p = document.getElementById("urge-phase");
+    c.classList.toggle("in", inhale);
+    p.textContent = inhale ? "Inhale" : "Exhale";
+  }
+  function urgeStart() {
+    if (urge.running) return;
+    urge.running = true;
+    document.getElementById("urge-done").classList.add("hidden");
+    urge.inhale = true; setBreath(true);
+    urge.phaseTimer = setInterval(function () { urge.inhale = !urge.inhale; setBreath(urge.inhale); }, 5500);
+    urge.interval = setInterval(function () {
+      urge.remaining -= 1;
+      document.getElementById("urge-time").textContent = String(Math.max(0, urge.remaining));
+      if (urge.remaining <= 0) {
+        urgeStop();
+        document.getElementById("urge-phase").textContent = "Ridden";
+        document.getElementById("urge-done").classList.remove("hidden");
+      }
+    }, 1000);
+  }
+  function urgeStop() {
+    urge.running = false;
+    clearInterval(urge.interval); clearInterval(urge.phaseTimer);
+    urge.interval = null; urge.phaseTimer = null;
+    const c = document.getElementById("breath-circle");
+    if (c) c.classList.remove("in");
+    const p = document.getElementById("urge-phase");
+    if (p && urge.remaining > 0) p.textContent = urge.remaining === 90 ? "Ready" : "Paused";
+  }
+  function urgeReset() {
+    urgeStop();
+    urge.remaining = 90;
+    document.getElementById("urge-time").textContent = "90";
+    document.getElementById("urge-phase").textContent = "Ready";
+    document.getElementById("urge-done").classList.add("hidden");
+  }
+
+  /* ---------- clipboard ---------- */
+  function copyText(text) {
+    function fallback() {
+      const ta = document.createElement("textarea"); ta.value = text; ta.setAttribute("readonly", "");
+      ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select();
+      let ok = false; try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+      document.body.removeChild(ta); return ok;
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => toast("Copied to clipboard"), () => { fallback(); toast("Copied to clipboard"); });
+    } else { fallback(); toast("Copied to clipboard"); }
+  }
+
+  /* ---------- export / wipe ---------- */
+  function exportBackup() {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "osv1-cockpit-backup-" + currentKey + ".json";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    toast("Backup downloaded");
+  }
+  function importBackup(file) {
+    const reader = new FileReader();
+    reader.onload = function () {
+      try {
+        const parsed = JSON.parse(String(reader.result || ""));
+        if (!parsed || typeof parsed !== "object" || !parsed.days || !parsed.settings) { toast("That file is not an OS-v1 backup"); return; }
+        if (!window.confirm("Replace everything in this browser with the backup? This cannot be undone.")) return;
+        const base = defaultState();
+        state = {
+          days: parsed.days || base.days,
+          staging: parsed.staging || base.staging,
+          calls: Array.isArray(parsed.calls) ? parsed.calls : base.calls,
+          parking: Array.isArray(parsed.parking) ? parsed.parking : base.parking,
+          settings: Object.assign(base.settings, parsed.settings || {}),
+          ui: Object.assign(base.ui, parsed.ui || {})
+        };
+        commit(); render(); toast("Backup imported");
+      } catch (e) { toast("Could not read that file"); }
+    };
+    reader.readAsText(file);
+  }
+  function wipeAll() {
+    if (!window.confirm("Wipe every tick, tally, call and parked idea from this browser? This cannot be undone.")) return;
+    state = defaultState(); commit(); render(); toast("All data wiped");
+  }
+
+  /* ---------- events ---------- */
+  document.addEventListener("click", function (e) {
+    const tabBtn = e.target.closest("[data-tab]");
+    if (tabBtn) { state.ui.tab = tabBtn.dataset.tab; commit(); render(); return; }
+
+    const el = e.target.closest("[data-action]");
+    if (!el) return;
+    const action = el.dataset.action;
+    const d = day(currentKey);
+
+    switch (action) {
+      case "toggle-battery": d.battery = !d.battery; commit(); render(); break;
+      case "open-reset": openReset(); break;
+      case "close-reset": closeReset(); break;
+      case "reset-step": {
+        const i = Number(el.dataset.step);
+        resetDone = resetDone.indexOf(i) >= 0 ? resetDone.filter((x) => x !== i) : resetDone.concat([i]);
+        renderResetSteps();
+        break;
+      }
+      case "reset-steps-clear": resetDone = []; renderResetSteps(); break;
+      case "reset-exit-continue": d.battery = false; commit(); closeReset(); render(); toast("Back to the day. Cafe block, one message."); break;
+      case "reset-exit-maintenance": d.battery = true; commit(); closeReset(); render(); toast("Maintenance day. Sunset walk, early bed."); break;
+      case "urge-start": urgeStart(); break;
+      case "urge-stop": urgeStop(); break;
+      case "urge-reset": urgeReset(); break;
+      case "cig-add": d.cigs.push(new Date().toISOString()); commit(); render(); break;
+      case "cig-undo": d.cigs.pop(); commit(); render(); break;
+      case "coffee-add": d.coffee.push(new Date().toISOString()); commit(); render(); break;
+      case "coffee-undo": d.coffee.pop(); commit(); render(); break;
+      case "out-start": d.outdoorRunSince = Date.now(); commit(); render(); break;
+      case "out-stop": if (d.outdoorRunSince) { d.outdoorSec += (Date.now() - d.outdoorRunSince) / 1000; d.outdoorRunSince = null; } commit(); render(); break;
+      case "out-add": d.outdoorSec += Number(el.dataset.min) * 60; commit(); render(); break;
+      case "out-clear": if (window.confirm("Clear today's outdoor time?")) { d.outdoorSec = 0; d.outdoorRunSince = null; commit(); render(); } break;
+      case "copy-script": copyText(state.settings.script); break;
+      case "script-default": state.settings.script = DEFAULT_SCRIPT; commit(); render(); break;
+      case "call-delete": state.calls = state.calls.filter((c) => c.id !== el.dataset.id); commit(); render(); break;
+      case "park-delete": state.parking = state.parking.filter((p) => p.id !== el.dataset.id); commit(); render(); break;
+      case "export": exportBackup(); break;
+      case "import": document.getElementById("import-file").click(); break;
+      case "wipe": wipeAll(); break;
+      default: break;
+    }
+  });
+
+  document.addEventListener("change", function (e) {
+    const t = e.target;
+    if (t.id === "import-file") { if (t.files && t.files[0]) importBackup(t.files[0]); t.value = ""; return; }
+    const d = day(currentKey);
+    if (t.matches("[data-check]")) { d.done[t.dataset.check] = t.checked; commit(); render(); return; }
+    if (t.matches("[data-stage]")) { const s = staging(shiftKey(currentKey, 1)); s[t.dataset.stage] = t.checked; commit(); render(); return; }
+    if (t.matches("[data-wind]")) { const s = staging(shiftKey(currentKey, 1)); s.wind[t.dataset.wind] = t.checked; commit(); render(); return; }
+    if (t.matches("[data-call-status]")) { const c = state.calls.find((x) => x.id === t.dataset.callStatus); if (c) { c.status = t.value; commit(); render(); } return; }
+    if (t.matches("[data-bind]")) {
+      const b = t.dataset.bind;
+      if (b === "capital" || b === "burn") { state.settings[b] = Number(t.value) || 0; commit(); render(); }
+      else if (b === "safeMan") { state.settings.safeMan = t.value; commit(); renderResetSteps(); }
+      else if (b === "script") { state.settings.script = t.value; commit(); render(); }
+      else if (b === "ignition") { const s = staging(shiftKey(currentKey, 1)); s.ignition = t.value; commit(); render(); }
+    }
+  });
+
+  document.addEventListener("input", function (e) {
+    const t = e.target;
+    if (t.matches("[data-bind='ignition']")) {
+      const s = staging(shiftKey(currentKey, 1)); s.ignition = t.value; commit();
+    }
+    if (t.matches("[data-bind='script']")) { state.settings.script = t.value; commit(); }
+    if (t.matches("[data-bind='safeMan']")) { state.settings.safeMan = t.value; commit(); }
+  });
+
+  document.addEventListener("submit", function (e) {
+    if (e.target.id === "call-form") {
+      e.preventDefault();
+      const f = e.target;
+      const contact = f.contact.value.trim(); if (!contact) return;
+      state.calls.unshift({ id: uid(), contact: contact, entity: f.entity.value.trim(), price: f.price.value.trim(), moisture: f.moisture.value.trim(), notes: f.notes.value.trim(), status: f.status.value, at: new Date().toISOString() });
+      commit(); render(); toast("Call logged");
+    }
+    if (e.target.id === "park-form") {
+      e.preventDefault();
+      const v = e.target.idea.value.trim(); if (!v) return;
+      state.parking.unshift({ id: uid(), text: v, at: new Date().toISOString() });
+      commit(); render(); toast("Parked. Let it go.");
+    }
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !document.getElementById("reset-modal").classList.contains("hidden")) closeReset();
+  });
+
+  /* ---------- boot ---------- */
+  document.getElementById("persist-note").textContent = persistent ? "Saved on this device, in this browser." : "This browser is not saving between sessions — open the file in Chrome.";
+  if (!persistent) document.getElementById("persist-note").className = "text-rose-300";
+  render();
+})();
+</script>
+</body>
+</html>
